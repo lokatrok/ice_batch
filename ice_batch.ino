@@ -1,17 +1,21 @@
 #include "NextionGateWay.h"
 #include "SystemState.h"
 #include "SystemVariables.h"
-#include "RTCManager.h"  // ← Tambahkan
+#include "RTCManager.h"
+#include "SensorManager.h"              // ← ADD
+#include "SensorDisplayManager.h"       // ← ADD
 #include "esp_task_wdt.h"
 
 NextionGateWay nextion;
 SystemStateMachine fsm;
 SystemStorage storage;
-RTCManager rtcManager;  // ← Tambahkan
+RTCManager rtcManager;
+SensorManager sensorManager;            // ← ADD
+SensorDisplayManager displayManager;    // ← ADD
 
 TaskHandle_t nextionTaskHandle;
 TaskHandle_t debugTaskHandle;
-TaskHandle_t rtcTaskHandle;  // ← Tambahkan
+TaskHandle_t rtcTaskHandle;
 
 void nextionTask(void *pvParameters) {
     for (;;) {
@@ -20,7 +24,7 @@ void nextionTask(void *pvParameters) {
     }
 }
 
-// ===== DEBUG TASK =====
+// ===== DEBUG TASK (Updated) =====
 void debugStateTask(void *pvParameters) {
     SystemState lastState = SystemState::STATE_ERROR;
 
@@ -29,6 +33,12 @@ void debugStateTask(void *pvParameters) {
         
         // Update Storage dari Nextion
         storage.updateFromNextion(data);
+        
+        // ===== UPDATE SENSORS ===== ← ADD
+        sensorManager.update();
+        
+        // ===== SYNC SENSORS TO NEXTION ===== ← ADD
+        displayManager.syncToNextion();
         
         // Update FSM
         fsm.update(data);
@@ -43,7 +53,7 @@ void debugStateTask(void *pvParameters) {
     }
 }
 
-// ===== RTC TASK ===== ← BARU!
+// ===== RTC TASK =====
 void rtcTask(void *pvParameters) {
     static String lastSetTime = "";
     
@@ -63,7 +73,7 @@ void rtcTask(void *pvParameters) {
         // Kirim waktu ke Nextion setiap 1 detik
         rtcManager.sendToNextion("tClock");
         
-        vTaskDelay(pdMS_TO_TICKS(1000));  // Update setiap 1 detik
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
 
@@ -79,8 +89,14 @@ void setup() {
 
     nextion.begin();
     storage.begin();
-    rtcManager.begin();  // ← Init RTC
-    rtcManager.setNextionGateway(&nextion); 
+    rtcManager.begin();
+    rtcManager.setNextionGateway(&nextion);
+    
+    // ===== SENSOR INITIALIZATION ===== ← ADD
+    sensorManager.begin();
+    displayManager.begin(&sensorManager, &nextion);
+    
+    Serial.println("[SYSTEM] All systems initialized");
 
     xTaskCreatePinnedToCore(
         nextionTask,
@@ -102,7 +118,6 @@ void setup() {
         0
     );
 
-    // ===== RTC TASK ===== ← BARU!
     xTaskCreatePinnedToCore(
         rtcTask,
         "RTCTask",
