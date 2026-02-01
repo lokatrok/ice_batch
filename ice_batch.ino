@@ -1,21 +1,42 @@
+//ice_batch.ino
+
 #include "NextionGateWay.h"
 #include "SystemState.h"
 #include "SystemVariables.h"
 #include "RTCManager.h"
-#include "SensorManager.h"              // ← ADD
-#include "SensorDisplayManager.h"       // ← ADD
+#include "SensorManager.h"
+#include "SensorDisplayManager.h"
+#include "ActuatorControl.h"              // ← ADD
+#include "NextionOutput.h"                // ← ADD
+#include "StateConditionHandler.h"        // ← ADD
 #include "esp_task_wdt.h"
 
+// ===== GLOBAL INSTANCES =====
 NextionGateWay nextion;
-SystemStateMachine fsm;
 SystemStorage storage;
 RTCManager rtcManager;
-SensorManager sensorManager;            // ← ADD
-SensorDisplayManager displayManager;    // ← ADD
+SensorManager sensorManager;
+SensorDisplayManager displayManager;
+ActuatorControl actuatorControl;          // ← ADD
+NextionOutput nextionOutput;              // ← ADD
+StateConditionHandler conditionHandler(   // ← ADD (with dependencies)
+    &sensorManager,
+    &actuatorControl,
+    &nextionOutput
+);
+SystemStateMachine fsm(                   // ← UPDATE (with dependencies)
+    &sensorManager,
+    &actuatorControl,
+    &nextionOutput,
+    &conditionHandler,
+    &storage
+);
 
 TaskHandle_t nextionTaskHandle;
 TaskHandle_t debugTaskHandle;
 TaskHandle_t rtcTaskHandle;
+
+// ===== TASKS =====
 
 void nextionTask(void *pvParameters) {
     for (;;) {
@@ -24,7 +45,6 @@ void nextionTask(void *pvParameters) {
     }
 }
 
-// ===== DEBUG TASK (Updated) =====
 void debugStateTask(void *pvParameters) {
     SystemState lastState = SystemState::STATE_ERROR;
 
@@ -34,15 +54,16 @@ void debugStateTask(void *pvParameters) {
         // Update Storage dari Nextion
         storage.updateFromNextion(data);
         
-        // ===== UPDATE SENSORS ===== ← ADD
+        // ===== UPDATE SENSORS =====
         sensorManager.update();
         
-        // ===== SYNC SENSORS TO NEXTION ===== ← ADD
+        // ===== SYNC SENSORS TO NEXTION =====
         displayManager.syncToNextion();
         
-        // Update FSM
+        // ===== UPDATE FSM =====
         fsm.update(data);
 
+        // Debug log state changes
         if (fsm.getState() != lastState) {
             lastState = fsm.getState();
             Serial.print("[FSM] State changed → ");
@@ -53,7 +74,6 @@ void debugStateTask(void *pvParameters) {
     }
 }
 
-// ===== RTC TASK =====
 void rtcTask(void *pvParameters) {
     static String lastSetTime = "";
     
@@ -77,6 +97,8 @@ void rtcTask(void *pvParameters) {
     }
 }
 
+// ===== SETUP =====
+
 void setup() {
     Serial.begin(115200);
     delay(500);
@@ -87,17 +109,21 @@ void setup() {
     esp_task_wdt_add(NULL);
     Serial.println("[WDT] Watchdog Timer enabled");
 
+    // ===== INITIALIZE MODULES =====
     nextion.begin();
     storage.begin();
     rtcManager.begin();
     rtcManager.setNextionGateway(&nextion);
     
-    // ===== SENSOR INITIALIZATION ===== ← ADD
     sensorManager.begin();
     displayManager.begin(&sensorManager, &nextion);
     
+    actuatorControl.begin();              // ← ADD
+    nextionOutput.begin();                // ← ADD
+    
     Serial.println("[SYSTEM] All systems initialized");
 
+    // ===== CREATE TASKS =====
     xTaskCreatePinnedToCore(
         nextionTask,
         "NextionTask",

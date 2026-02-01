@@ -4,6 +4,13 @@
 
 #include <Arduino.h>
 #include "NextionGateWay.h"
+#include "SystemVariables.h"  // ← TAMBAH untuk SystemStorage
+
+// Forward declarations
+class StateConditionHandler;
+class NextionOutput;
+class SensorManager;
+class ActuatorControl;
 
 // ===== STATE DEFINITIONS =====
 enum class SystemState : uint8_t {
@@ -11,8 +18,8 @@ enum class SystemState : uint8_t {
     STATE_FILLING,
     STATE_COOLING,
     STATE_DRAINING,
-    STATE_AUTO,                    // Auto mode tanpa circulation
-    STATE_AUTO_CIRCULATION,        // Auto mode dengan circulation
+    STATE_AUTO,
+    STATE_AUTO_CIRCULATION,
     STATE_BYPASS_MENU,
     STATE_ERROR
 };
@@ -20,7 +27,14 @@ enum class SystemState : uint8_t {
 // ===== STATE MACHINE CLASS =====
 class SystemStateMachine {
 public:
-    SystemStateMachine();
+    // Constructor with dependencies
+    SystemStateMachine(
+        SensorManager* sensors,
+        ActuatorControl* actuators,
+        NextionOutput* display,
+        StateConditionHandler* condHandler,
+        SystemStorage* storage
+    );
     ~SystemStateMachine();
 
     void update(const NextionData &data);
@@ -28,16 +42,29 @@ public:
     SystemState getState() const;
     String stateName() const;
     
-    bool isInAutoMode() const;  // Helper untuk cek apakah di AUTO atau AUTO_CIRCULATION
+    bool isInAutoMode() const;
     
     void reset();
 
 private:
+    // Dependencies (injected via constructor)
+    StateConditionHandler* conditionHandler;
+    NextionOutput* nextionOutput;
+    SensorManager* sensorManager;
+    ActuatorControl* actuatorControl;
+    SystemStorage* systemStorage;
+    
+    // State tracking
     SystemState currentState;
     SystemState previousState;
     
     unsigned long stateEntryTime;
     SemaphoreHandle_t mutex;
+    
+    // Auto-complete tracking (to prevent re-entry)
+    unsigned long lastFillingForceOffTime;
+    unsigned long lastDrainingForceOffTime;
+    static const unsigned long FORCE_OFF_DEBOUNCE_MS = 500;  // 500ms debounce
 
     void transitionTo(SystemState newState);
     SystemState determineState(const NextionData &data);
@@ -45,8 +72,26 @@ private:
     void onStateEntry(SystemState state);
     void onStateExit(SystemState state);
     
+    // State-specific action handlers
+    void handleIdleEntry();
+    void handleFillingEntry();
+    void handleFillingExit();
+    void handleCoolingEntry();
+    void handleCoolingExit();
+    void handleDrainingEntry();
+    void handleDrainingExit();
+    void handleAutoEntry();
+    void handleAutoExit();
+    void handleAutoCirculationEntry();
+    void handleAutoCirculationExit();
+    void handleBypassMenuEntry();
+    void handleErrorEntry();
+    
     void lock();
     void unlock();
+    
+    // Helper untuk convert state ke string
+    const char* getStateName(SystemState state) const;
 };
 
 #endif
