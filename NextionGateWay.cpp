@@ -48,6 +48,22 @@ NextionData NextionGateWay::getData() {
     return copy;
 }
 
+// ===== FIX: Clear status methods =====
+
+void NextionGateWay::clearFillingStatus() {
+    lock();
+    data.fillingStatus = false;
+    unlock();
+    Serial.println("[NextionGateWay] fillingStatus CLEARED");
+}
+
+void NextionGateWay::clearDrainingStatus() {
+    lock();
+    data.drainingStatus = false;
+    unlock();
+    Serial.println("[NextionGateWay] drainingStatus CLEARED");
+}
+
 // ===== INTERNAL =====
 
 void NextionGateWay::processBuffer() {

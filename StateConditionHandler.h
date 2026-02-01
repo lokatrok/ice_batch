@@ -67,6 +67,14 @@ private:
     unsigned long floatTrueStartTime;   // Waktu pertama float jadi TRUE
     static const unsigned long FLOAT_DEBOUNCE_MS = 2000;  // 2 detik debounce
     
+    // ===== DRAINING STATE =====
+    // ✅ FIX: Tambah state tracking untuk draining
+    float drainingFlowThreshold;        // Target flow rate threshold (L/min)
+    unsigned long drainingLowFlowStartTime;  // Waktu flow mulai <= threshold
+    bool drainingLowFlowDetected;       // Apakah flow sudah <= threshold
+    static constexpr unsigned long DRAINING_LOW_FLOW_TIMEOUT_MS = 5000;  // 5 detik
+    static constexpr float DRAINING_FLOW_THRESHOLD = 0.1f;  // 0.1 L/min
+    
     // ===== HELPER METHODS =====
     void updateCoolingDisplay();
     uint16_t getElapsedMinutes(unsigned long startTime);

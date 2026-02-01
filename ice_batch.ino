@@ -29,7 +29,8 @@ SystemStateMachine fsm(                   // ← UPDATE (with dependencies)
     &actuatorControl,
     &nextionOutput,
     &conditionHandler,
-    &storage
+    &storage,
+    &nextion  // ← BENAR (object yang sudah dideklarasi di line 15)
 );
 
 TaskHandle_t nextionTaskHandle;

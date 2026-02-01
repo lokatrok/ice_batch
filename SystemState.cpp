@@ -1,4 +1,4 @@
-// SystemState.cpp
+// SystemState.cpp - FIXED VERSION
 #include "SystemState.h"
 #include "StateConditionHandler.h"
 #include "NextionOutput.h"
@@ -24,13 +24,15 @@ SystemStateMachine::SystemStateMachine(
     ActuatorControl* actuators,
     NextionOutput* display,
     StateConditionHandler* condHandler,
-    SystemStorage* storage
+    SystemStorage* storage,
+    NextionGateWay* gateway  // ← TAMBAHAN: parameter baru
 ) 
     : sensorManager(sensors)
     , actuatorControl(actuators)
     , nextionOutput(display)
     , conditionHandler(condHandler)
     , systemStorage(storage)
+    , nextionGateway(gateway)  // ← TAMBAHAN: initialize pointer
     , currentState(SystemState::STATE_IDLE)
     , previousState(SystemState::STATE_IDLE)
     , stateEntryTime(0)
@@ -67,17 +69,27 @@ void SystemStateMachine::update(const NextionData &data) {
     
     // Check filling condition jika sedang di state filling
     if (currentState == SystemState::STATE_FILLING) {
-        FillingStatus status = conditionHandler->checkFillingCondition();
+        // ===== FIX: Check valve state sebelum proses condition =====
+        // Jika valve sudah ditutup, jangan proses sensor
+        bool valveOpen = actuatorControl->getValveInletState();
         
-        if (status == FillingStatus::FILLING_COMPLETE) {
-            // Float sensor penuh - auto stop
-            Serial.println("[FSM] Filling complete - Auto transition to IDLE");
-            transitionTo(SystemState::STATE_IDLE);
-        } 
-        else if (status == FillingStatus::FILLING_ERROR) {
-            // Flow error - auto transition to ERROR
-            Serial.println("[FSM] Filling flow error - Auto transition to ERROR");
-            transitionTo(SystemState::STATE_ERROR);
+        if (!valveOpen) {
+            // Valve sudah ditutup - skip condition check
+            Serial.println("[FSM] Valve closed while in FILLING state - skipping condition check");
+        } else {
+            // Valve masih terbuka - process condition normally
+            FillingStatus status = conditionHandler->checkFillingCondition();
+            
+            if (status == FillingStatus::FILLING_COMPLETE) {
+                // Float sensor penuh - auto stop
+                Serial.println("[FSM] Filling complete - Auto transition to IDLE");
+                transitionTo(SystemState::STATE_IDLE);
+            } 
+            else if (status == FillingStatus::FILLING_ERROR) {
+                // Flow error - auto transition to ERROR
+                Serial.println("[FSM] Filling flow error - Auto transition to ERROR");
+                transitionTo(SystemState::STATE_ERROR);
+            }
         }
     }
     
@@ -296,16 +308,22 @@ void SystemStateMachine::handleIdleEntry() {
     
     // Jika masuk IDLE dari FILLING, force OFF di Nextion
     if (previousState == SystemState::STATE_FILLING) {
+        // ===== FIX: Auto-clear fillingStatus di NextionGateWay =====
+        nextionGateway->clearFillingStatus();
+        
         nextionOutput->forceFillingOff();
         lastFillingForceOffTime = millis();  // Record timestamp
-        Serial.println("[ACTION] Exited FILLING - Forced Nextion button OFF");
+        Serial.println("[ACTION] Exited FILLING - Cleared fillingStatus & Forced Nextion button OFF");
     }
     
     // Jika masuk IDLE dari DRAINING, force OFF di Nextion
     if (previousState == SystemState::STATE_DRAINING) {
+        // ===== FIX: Auto-clear drainingStatus di NextionGateWay =====
+        nextionGateway->clearDrainingStatus();
+        
         nextionOutput->forceDrainingOff();
         lastDrainingForceOffTime = millis();  // Record timestamp
-        Serial.println("[ACTION] Exited DRAINING - Forced Nextion button OFF");
+        Serial.println("[ACTION] Exited DRAINING - Cleared drainingStatus & Forced Nextion button OFF");
     }
 }
 

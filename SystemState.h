@@ -4,7 +4,7 @@
 
 #include <Arduino.h>
 #include "NextionGateWay.h"
-#include "SystemVariables.h"  // ← TAMBAH untuk SystemStorage
+#include "SystemVariables.h"  // ← untuk SystemStorage
 
 // Forward declarations
 class StateConditionHandler;
@@ -33,7 +33,8 @@ public:
         ActuatorControl* actuators,
         NextionOutput* display,
         StateConditionHandler* condHandler,
-        SystemStorage* storage
+        SystemStorage* storage,
+        NextionGateWay* gateway  // ← TAMBAHAN: pointer ke NextionGateWay
     );
     ~SystemStateMachine();
 
@@ -53,6 +54,7 @@ private:
     SensorManager* sensorManager;
     ActuatorControl* actuatorControl;
     SystemStorage* systemStorage;
+    NextionGateWay* nextionGateway;  // ← TAMBAHAN: untuk clear status
     
     // State tracking
     SystemState currentState;

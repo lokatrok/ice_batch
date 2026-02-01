@@ -20,10 +20,6 @@ void NextionOutput::begin() {
 void NextionOutput::updateCoolingDuration(uint16_t minutes) {
     String cmd = "nCoolDurMan.val=" + String(minutes);
     sendCommand(cmd);
-    
-    Serial.print("[NextionOutput] Cooling duration updated: ");
-    Serial.print(minutes);
-    Serial.println(" min");
 }
 
 void NextionOutput::setErrorBlink(bool enable) {

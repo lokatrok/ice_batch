@@ -1,4 +1,4 @@
-// StateConditionHandler.cpp
+// StateConditionHandler.cpp - UPDATED VERSION
 #include "StateConditionHandler.h"
 
 // ===== CONSTANTS =====
@@ -22,6 +22,9 @@ StateConditionHandler::StateConditionHandler(
     , lastFlowState(false)
     , lastFloatState(false)
     , floatTrueStartTime(0)
+    , drainingFlowThreshold(DRAINING_FLOW_THRESHOLD)
+    , drainingLowFlowStartTime(0)
+    , drainingLowFlowDetected(false)
 {
     Serial.println("[StateConditionHandler] Initialized");
 }
@@ -53,6 +56,20 @@ void StateConditionHandler::startFilling() {
 FillingStatus StateConditionHandler::checkFillingCondition() {
     SensorData data = sensor->getData();
     
+    // ===== SAFETY CHECK: Valve state =====
+    // Jika valve sudah ditutup, jangan proses sensor lebih lanjut
+    bool valveOpen = actuator->getValveInletState();
+    
+    if (!valveOpen) {
+        // Valve closed - stop processing float sensor
+        if (lastFloatState || floatTrueStartTime != 0) {
+            lastFloatState = false;
+            floatTrueStartTime = 0;
+            Serial.println("[FILLING] Valve closed - Float sensor tracking RESET");
+        }
+        return FillingStatus::FILLING_CONTINUE;
+    }
+    
     // ===== FLOAT SENSOR DEBOUNCING =====
     if (data.floatSensor) {
         // Float sensor TRUE
@@ -70,6 +87,11 @@ FillingStatus StateConditionHandler::checkFillingCondition() {
                 Serial.print("[FILLING] Float sensor STABLE for ");
                 Serial.print(floatTrueDuration);
                 Serial.println("ms - COMPLETE");
+                
+                // Reset tracking untuk consistency
+                lastFloatState = false;
+                floatTrueStartTime = 0;
+                
                 return FillingStatus::FILLING_COMPLETE;
             } else {
                 // Masih dalam debounce period
@@ -89,9 +111,9 @@ FillingStatus StateConditionHandler::checkFillingCondition() {
         floatTrueStartTime = 0;
     }
     
+    // ===== FLOW ERROR CHECK =====
     // Priority 2: Check flow switch error (TIDAK ADA ALIRAN)
     // Hanya check error jika valve sedang terbuka (filling active)
-    bool valveOpen = actuator->getValveInletState();
     
     if (valveOpen && !data.flowSwitch) {
         // Valve terbuka tapi tidak ada flow - ERROR
@@ -119,6 +141,12 @@ void StateConditionHandler::stopFilling() {
     
     // Close inlet valve
     actuator->setValveInlet(false);
+    
+    // ===== FIX: Reset float sensor tracking completely =====
+    // Ini penting untuk mencegah bounce data tertinggal
+    lastFloatState = false;
+    floatTrueStartTime = 0;
+    Serial.println("[FILLING] Float sensor tracking RESET after stop");
     
     // JANGAN clear error blink di sini
     // Biarkan ERROR state atau IDLE state yang handle
@@ -218,15 +246,76 @@ void StateConditionHandler::startDraining() {
     
     // Open drain valve
     actuator->setValveDrain(true);
+    
+    // ===== FIX: Reset draining state tracking =====
+    drainingLowFlowStartTime = 0;
+    drainingLowFlowDetected = false;
+    Serial.println("[DRAINING] Low flow detection reset");
 }
 
 DrainingStatus StateConditionHandler::checkDrainingCondition() {
     SensorData data = sensor->getData();
     
-    // Check if flow stopped (selesai drain)
-    if (!data.flowSwitch) {
-        Serial.println("[DRAINING] Flow stopped - COMPLETE");
-        return DrainingStatus::DRAINING_COMPLETE;
+    // ===== SAFETY CHECK: Valve state =====
+    bool valveOpen = actuator->getValveDrainState();
+    
+    if (!valveOpen) {
+        // Valve closed - stop processing
+        drainingLowFlowStartTime = 0;
+        drainingLowFlowDetected = false;
+        return DrainingStatus::DRAINING_CONTINUE;
+    }
+    
+    // ===== FIX: LOW FLOW DETECTION (5 detik) =====
+    // Check apakah flow rate <= threshold (0.1 L/min)
+    
+    if (data.flowRate <= drainingFlowThreshold) {
+        // Flow sudah <= threshold
+        
+        if (!drainingLowFlowDetected) {
+            // Baru pertama kali <= threshold - mulai tracking
+            drainingLowFlowStartTime = millis();
+            drainingLowFlowDetected = true;
+            Serial.print("[DRAINING] Flow rate <= ");
+            Serial.print(drainingFlowThreshold);
+            Serial.println(" L/min - Starting low flow timeout");
+        } else {
+            // Sudah <= threshold sebelumnya - cek durasi
+            unsigned long lowFlowDuration = millis() - drainingLowFlowStartTime;
+            
+            if (lowFlowDuration >= DRAINING_LOW_FLOW_TIMEOUT_MS) {
+                // Sudah <= threshold selama 5 detik - SELESAI!
+                Serial.print("[DRAINING] Flow rate stable at ");
+                Serial.print(data.flowRate);
+                Serial.print(" L/min for ");
+                Serial.print(lowFlowDuration);
+                Serial.println("ms - COMPLETE");
+                
+                // Reset tracking
+                drainingLowFlowStartTime = 0;
+                drainingLowFlowDetected = false;
+                
+                return DrainingStatus::DRAINING_COMPLETE;
+            } else {
+                // Masih dalam timeout period
+                Serial.print("[DRAINING] Low flow timeout... ");
+                Serial.print(lowFlowDuration);
+                Serial.print("/");
+                Serial.print(DRAINING_LOW_FLOW_TIMEOUT_MS);
+                Serial.print("ms (flowRate: ");
+                Serial.print(data.flowRate);
+                Serial.println(" L/min)");
+            }
+        }
+    } else {
+        // Flow naik kembali > threshold - reset timeout
+        if (drainingLowFlowDetected) {
+            Serial.print("[DRAINING] Flow rate increased to ");
+            Serial.print(data.flowRate);
+            Serial.println(" L/min - Reset timeout");
+        }
+        drainingLowFlowDetected = false;
+        drainingLowFlowStartTime = 0;
     }
     
     // Continue draining
@@ -238,6 +327,11 @@ void StateConditionHandler::stopDraining() {
     
     // Close drain valve
     actuator->setValveDrain(false);
+    
+    // ===== FIX: Reset draining state tracking =====
+    drainingLowFlowStartTime = 0;
+    drainingLowFlowDetected = false;
+    Serial.println("[DRAINING] Draining state RESET after stop");
 }
 
 // ===== ERROR RECOVERY =====
